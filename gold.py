@@ -4,15 +4,13 @@ import telegram
 from decouple import config
 import time
 import asyncio
+import database
+
+# Configuration
 tk = config('token_gold')
-
-# API url
-url = "https://brsapi.ir/FreeTsetmcBourseApi/Api_Free_Gold_Currency.json"
-# url = "https://brsapi.ir/FreeTsetmcBourseApi/Api_Free_Gold_Currency_v2.json"
-
+url = config('source_api_url')
 bot = telegram.Bot(token=tk)
-
-CHANNEL_ID = "@goldhelph"
+CHANNEL_ID = config("CHANNEL_ID")
 
 async def send_gold_price():
     try:
@@ -21,7 +19,6 @@ async def send_gold_price():
 
         if response.status_code == 200:
             data = json.loads(response.text)
-        #   print(data['currency'])
 
             for item in data['gold']:
                 if item['name'] == 'مثقال طلا':
@@ -39,6 +36,13 @@ async def send_gold_price():
 
             indx = mesghal - (ounce * dollar / 9.5742)
 
+            # Insert data into PostgreSQL
+            database.cur.execute("""
+                INSERT INTO gold.gold_prices (date, time, gold_price_world, dollar_price, gold_mesghal, gold18_price_iran)
+                VALUES (CURRENT_DATE, CURRENT_TIME, %s, %s, %s, %s)
+            """, (ounce, dollar, mesghal, gold18))
+            database.conn.commit()
+
             if indx > 500000:
                 print("sell")
                 await bot.send_message(chat_id=CHANNEL_ID, text=f"🔴Sell 🥇Gold\nانس جهانی: {ounce}\nدلار: {dollar}\nگرم طلای 18 عیار: {gold18}\n") 
@@ -55,6 +59,8 @@ async def send_gold_price():
         print(f"Error decoding JSON response: {e}")
     except telegram.error.TelegramError as e:
         print(f"Error sending Telegram message: {e}")
+    except psycopg2.Error as e:
+        print(f"Error interacting with PostgreSQL: {e}")
 
 async def main():
     while True:
@@ -62,3 +68,7 @@ async def main():
         await asyncio.sleep(1800)
 
 asyncio.run(main())
+
+# Close the database connection when done
+database.cur.close()
+database.conn.close()
